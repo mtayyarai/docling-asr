@@ -2,10 +2,13 @@ FROM quay.io/docling-project/docling-serve-cpu:latest
 
 USER root
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg curl && rm -rf /var/lib/apt/lists/*
+# Base image is UBI/RHEL-based, use dnf/microdnf
+RUN microdnf install -y ffmpeg-free curl && microdnf clean all || \
+    dnf install -y ffmpeg-free curl && dnf clean all || \
+    yum install -y ffmpeg curl && yum clean all || \
+    echo "Warning: Could not install ffmpeg via package manager"
 
-# Install ASR + wrapper dependencies
+# Install ASR dependencies (Whisper for audio transcription) and httpx for proxy
 RUN pip install --no-cache-dir "docling[asr]" httpx
 
 # Copy wrapper files

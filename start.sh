@@ -5,7 +5,7 @@ docling-serve run --host "::" --port 5001 &
 # Wait for docling-serve to be ready
 echo "Waiting for docling-serve to start..."
 for i in $(seq 1 60); do
-    if curl -s http://localhost:5001/health > /dev/null 2>&1; then
+    if python -c "import urllib.request; urllib.request.urlopen('http://localhost:5001/health')" 2>/dev/null; then
         echo "docling-serve is ready"
         break
     fi
