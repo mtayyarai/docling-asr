@@ -23,7 +23,7 @@ app.add_middleware(
 
 AUDIO_EXTENSIONS = {'.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac'}
 VIDEO_EXTENSIONS = {'.mp4', '.avi', '.mov'}
-DOCLING_INTERNAL = "http://localhost:5001"
+DOCLING_INTERNAL = "http://localhost:5002"
 
 # Lazy-loaded ASR converter
 _asr_converter = None
@@ -61,6 +61,14 @@ async def health():
     return {"status": "ok"}
 
 
+@app.get("/docs")
+async def docs_redirect():
+    """Proxy docs to internal docling-serve."""
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(f"{DOCLING_INTERNAL}/docs")
+        return JSONResponse(content=resp.text, media_type="text/html")
+
+
 @app.post("/v1/convert/file")
 async def convert_file(request: Request):
     """
@@ -92,7 +100,11 @@ async def convert_file(request: Request):
 
 async def handle_audio(file_bytes: bytes, filename: str):
     """Process audio file using docling's ASR pipeline."""
+    tmp_path = None
     try:
+        import time
+        start = time.time()
+
         # Write to temp file (docling needs a file path)
         with tempfile.NamedTemporaryFile(suffix=Path(filename).suffix, delete=False) as tmp:
             tmp.write(file_bytes)
@@ -103,6 +115,7 @@ async def handle_audio(file_bytes: bytes, filename: str):
 
         # Export to markdown
         md_content = result.document.export_to_markdown()
+        elapsed = time.time() - start
 
         # Clean up
         os.unlink(tmp_path)
@@ -118,15 +131,16 @@ async def handle_audio(file_bytes: bytes, filename: str):
             },
             "status": "success",
             "errors": [],
-            "processing_time": 0,
+            "processing_time": elapsed,
             "timings": {},
         })
     except Exception as e:
         # Clean up on error
-        try:
-            os.unlink(tmp_path)
-        except:
-            pass
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except:
+                pass
         return JSONResponse({
             "document": {
                 "filename": filename,
@@ -164,4 +178,4 @@ async def proxy_to_docling(file_bytes: bytes, filename: str, request: Request):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="::", port=8080)
+    uvicorn.run(app, host="::", port=5001)
