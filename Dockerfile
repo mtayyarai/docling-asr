@@ -2,22 +2,19 @@ FROM quay.io/docling-project/docling-serve-cpu:latest
 
 USER root
 
-# Base image is UBI/RHEL-based, use dnf/microdnf
-RUN microdnf install -y ffmpeg-free curl && microdnf clean all || \
-    dnf install -y ffmpeg-free curl && dnf clean all || \
-    yum install -y ffmpeg curl && yum clean all || \
-    echo "Warning: Could not install ffmpeg via package manager"
+# Install system dependencies for audio
+RUN microdnf install -y ffmpeg-free && microdnf clean all || \
+    dnf install -y ffmpeg-free && dnf clean all || \
+    echo "Warning: Could not install ffmpeg"
 
-# Install ASR dependencies (Whisper for audio transcription) and httpx for proxy
-RUN pip install --no-cache-dir "docling[asr]" httpx
+# Install ASR dependencies
+RUN pip install --no-cache-dir "docling[asr]"
 
-# Copy wrapper files
+# Copy the single-process API
 COPY asr_wrapper.py /app/asr_wrapper.py
-COPY start.sh /app/start.sh
-RUN chmod +x /app/start.sh
 
 USER default
 
-EXPOSE 8080
+EXPOSE 5001
 
-CMD ["/app/start.sh"]
+CMD ["python", "/app/asr_wrapper.py"]

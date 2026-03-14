@@ -1,18 +1,17 @@
 """
-Custom wrapper that adds ASR (audio transcription) support to docling-serve.
-Runs alongside docling-serve and proxies document requests to it,
-while handling audio files directly using docling's AsrPipeline.
+Single-process Docling API with ASR support.
+Uses docling Python library directly for all file types.
 """
 import os
 import json
+import time
 import tempfile
-import httpx
 from pathlib import Path
-from fastapi import FastAPI, Request, UploadFile, File, Header
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="Docling + ASR Wrapper")
+app = FastAPI(title="Docling + ASR API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -23,10 +22,19 @@ app.add_middleware(
 
 AUDIO_EXTENSIONS = {'.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac'}
 VIDEO_EXTENSIONS = {'.mp4', '.avi', '.mov'}
-DOCLING_INTERNAL = "http://localhost:5002"
 
-# Lazy-loaded ASR converter
+# Lazy-loaded converters
+_doc_converter = None
 _asr_converter = None
+
+
+def get_doc_converter():
+    global _doc_converter
+    if _doc_converter is None:
+        from docling.document_converter import DocumentConverter
+        _doc_converter = DocumentConverter()
+    return _doc_converter
+
 
 def get_asr_converter():
     global _asr_converter
@@ -61,63 +69,40 @@ async def health():
     return {"status": "ok"}
 
 
-@app.get("/docs")
-async def docs_redirect():
-    """Proxy docs to internal docling-serve."""
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.get(f"{DOCLING_INTERNAL}/docs")
-        return JSONResponse(content=resp.text, media_type="text/html")
-
-
 @app.post("/v1/convert/file")
 async def convert_file(request: Request):
-    """
-    Accepts file uploads. Routes audio files to ASR pipeline,
-    everything else to the internal docling-serve.
-    """
     content_type = request.headers.get("content-type", "")
-
     if "multipart/form-data" not in content_type:
         return JSONResponse({"error": "Expected multipart/form-data"}, status_code=400)
 
-    # Parse the multipart form
     form = await request.form()
     files_field = form.get("files")
-
     if files_field is None:
         return JSONResponse({"error": "No 'files' field in form data"}, status_code=400)
 
     filename = files_field.filename or "unknown"
     file_bytes = await files_field.read()
 
-    if is_audio_file(filename):
-        # Handle audio with ASR pipeline
-        return await handle_audio(file_bytes, filename)
-    else:
-        # Proxy to internal docling-serve
-        return await proxy_to_docling(file_bytes, filename, request)
-
-
-async def handle_audio(file_bytes: bytes, filename: str):
-    """Process audio file using docling's ASR pipeline."""
     tmp_path = None
     try:
-        import time
         start = time.time()
 
-        # Write to temp file (docling needs a file path)
-        with tempfile.NamedTemporaryFile(suffix=Path(filename).suffix, delete=False) as tmp:
+        # Write to temp file
+        suffix = Path(filename).suffix
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
             tmp.write(file_bytes)
             tmp_path = tmp.name
 
-        converter = get_asr_converter()
-        result = converter.convert(Path(tmp_path))
+        # Choose converter based on file type
+        if is_audio_file(filename):
+            converter = get_asr_converter()
+        else:
+            converter = get_doc_converter()
 
-        # Export to markdown
+        result = converter.convert(Path(tmp_path))
         md_content = result.document.export_to_markdown()
         elapsed = time.time() - start
 
-        # Clean up
         os.unlink(tmp_path)
 
         return JSONResponse({
@@ -134,8 +119,8 @@ async def handle_audio(file_bytes: bytes, filename: str):
             "processing_time": elapsed,
             "timings": {},
         })
+
     except Exception as e:
-        # Clean up on error
         if tmp_path:
             try:
                 os.unlink(tmp_path)
@@ -147,35 +132,13 @@ async def handle_audio(file_bytes: bytes, filename: str):
                 "md_content": None,
             },
             "status": "failure",
-            "errors": [{"component_type": "asr", "module_name": "AsrPipeline", "error_message": str(e)}],
+            "errors": [{"component_type": "converter", "module_name": "", "error_message": str(e)}],
             "processing_time": 0,
             "timings": {},
         }, status_code=500)
 
 
-async def proxy_to_docling(file_bytes: bytes, filename: str, request: Request):
-    """Proxy non-audio files to the internal docling-serve instance."""
-    try:
-        auth_header = request.headers.get("authorization", "")
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            files = {"files": (filename, file_bytes)}
-            headers = {}
-            if auth_header:
-                headers["Authorization"] = auth_header
-
-            resp = await client.post(
-                f"{DOCLING_INTERNAL}/v1/convert/file",
-                files=files,
-                headers=headers,
-            )
-            return JSONResponse(
-                content=resp.json(),
-                status_code=resp.status_code,
-            )
-    except Exception as e:
-        return JSONResponse({"error": f"Proxy to docling failed: {str(e)}"}, status_code=502)
-
-
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=5001)
+    port = int(os.environ.get("PORT", "5001"))
+    uvicorn.run(app, host="0.0.0.0", port=port)
