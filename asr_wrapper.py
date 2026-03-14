@@ -40,6 +40,8 @@ def get_doc_converter():
         pipeline_options = PdfPipelineOptions()
         pipeline_options.ocr_options = ocr_options
         pipeline_options.do_ocr = True
+        # Force full page OCR for image-based/scanned PDFs that have no text layer
+        pipeline_options.force_full_page_ocr = True
 
         _doc_converter = DocumentConverter(
             format_options={
