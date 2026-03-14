@@ -11,8 +11,8 @@ RUN curl -L https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-stati
     rm -rf /tmp/ffmpeg* && \
     ffmpeg -version | head -1
 
-# Install ASR dependencies
-RUN pip install --no-cache-dir "docling[asr]"
+# Install ASR + EasyOCR dependencies
+RUN pip install --no-cache-dir "docling[asr]" easyocr
 
 # Copy the API
 COPY asr_wrapper.py /app/asr_wrapper.py

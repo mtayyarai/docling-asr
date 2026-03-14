@@ -31,8 +31,22 @@ _asr_converter = None
 def get_doc_converter():
     global _doc_converter
     if _doc_converter is None:
-        from docling.document_converter import DocumentConverter
-        _doc_converter = DocumentConverter()
+        from docling.document_converter import DocumentConverter, PdfFormatOption, ImageFormatOption
+        from docling.datamodel.base_models import InputFormat
+        from docling.datamodel.pipeline_options import PdfPipelineOptions, EasyOcrOptions
+
+        # Use EasyOCR for better English/Arabic text extraction (RapidOCR uses Chinese models)
+        ocr_options = EasyOcrOptions(lang=["en", "ar"])
+        pipeline_options = PdfPipelineOptions()
+        pipeline_options.ocr_options = ocr_options
+        pipeline_options.do_ocr = True
+
+        _doc_converter = DocumentConverter(
+            format_options={
+                InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options),
+                InputFormat.IMAGE: ImageFormatOption(pipeline_options=pipeline_options),
+            }
+        )
     return _doc_converter
 
 
