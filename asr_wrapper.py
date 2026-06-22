@@ -42,11 +42,14 @@ def get_doc_converter():
         pipeline_options.ocr_options = ocr_options
         pipeline_options.do_ocr = True
 
+        # allowed_formats must list every input format we want to accept;
+        # format_options can override pipelines for a subset (here, PDF + IMAGE get EasyOCR).
         _doc_converter = DocumentConverter(
+            allowed_formats=list(InputFormat),
             format_options={
                 InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options),
                 InputFormat.IMAGE: ImageFormatOption(pipeline_options=pipeline_options),
-            }
+            },
         )
     return _doc_converter
 
